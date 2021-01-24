@@ -8,10 +8,15 @@ import sys
 import logging
 import requests
 import base64
+import unidecode
 import pandas as pd
 
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import linear_kernel
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+
 
 logging.basicConfig(filename = "snd.log", level=logging.INFO, format= '%(levelname)s %(asctime)s: %(message)s', datefmt='%d/%m/%Y %H:%M:%S')
 
@@ -19,23 +24,18 @@ logging.basicConfig(filename = "snd.log", level=logging.INFO, format= '%(levelna
 QUERY = 'INSERT INTO unprocessed_data_no_full(district,town,name,address,rooms,price,link,soup) VALUES(%s, %s, %s, %s, %s, %s, %s, %s)'
 
 def get_recommendations(metadata, indices, title, cosine_sim):
-    # Get the index of the movie that matches the title
-    idx = indices[title]
 
-    # Get the pairwsie similarity scores of all movies with that movie
+    idx = indices[title]
+    # Get the pairwsie similarity scores of all accs with that acc
     sim_scores = list(enumerate(cosine_sim[idx]))
 
-    # Sort the movies based on the similarity scores
+    # Sort the accs based on the similarity scores
     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
-
-    # Get the scores of the 10 most similar movies
-    sim_scores = sim_scores[1:11]
-
-    # Get the movie indices
+    sim_scores = sim_scores[1:30]
     movie_indices = [i[0] for i in sim_scores]
 
-    # Return the top 10 most similar movies
-    return metadata['name'].iloc[movie_indices]
+    # Return the top 10 most similar accs
+    return metadata.iloc[movie_indices]
 
 
 if __name__ == "__main__": 
@@ -65,27 +65,49 @@ if __name__ == "__main__":
     for row in unproc_data:
         soup = row["district"] + ' ' + str.lower(row["town"])
         address = ''.join(str.lower(row['address'].replace(" ", "").replace(".", "").replace(",", "")))
-        rooms = row["rooms"][:2].replace(" ", "")
-        price = row["price"][:3].replace(" ", "")
-        if not price.isdigit():
-            price = "150"
+        
+        rooms = unidecode.unidecode(row["rooms"].replace(" ", ""))
+        rooms = rooms.split("in")[0].split("si")[0]
+        
+        price = unidecode.unidecode(row["price"].replace(" ", "").replace("/", "").replace(".", ""))
+        if not price.endswith("dubla"):
+            price = "150leinoaptecamdubla"
         soup += ' ' + address + ' ' + rooms + ' ' + price
         row["soup"] = soup.replace("/", "").replace("\n", "")
         proc_data.append(row)
 
     proc_df = pd.DataFrame(proc_data)
-    print(proc_df[['soup']].head(2))
+    print(proc_df[['soup']].head(5))
 
     count = CountVectorizer(stop_words='english')
     count_matrix = count.fit_transform(proc_df['soup'])
 
-    cosine_sim = cosine_similarity(count_matrix, count_matrix)
-    
+    tfidf = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = tfidf.fit_transform(proc_df['soup'])
+
+    cosine_sim_count = cosine_similarity(count_matrix, count_matrix)
+    cosine_sim_tfidf = linear_kernel(tfidf_matrix, tfidf_matrix)
+
     proc_df = proc_df.reset_index()
     indices = pd.Series(proc_df.index, index=proc_df['name'])
 
-    reccs = get_recommendations(proc_df, indices, "Vila Balasa", cosine_sim)
+    while True:
+        name = input("Name of accomodation: ")
+        type_of_method = input("Method used (tfidf/count): ")
+        print(name, type_of_method)
+        reccs = None
+        try:
+            if (type_of_method == "tfidf"):
+                reccs = get_recommendations(proc_df, indices, name, cosine_sim_tfidf)
+                print(reccs[['district', 'town', 'name', 'rooms', 'price']])
+            elif (type_of_method == "count"):
+                reccs = get_recommendations(proc_df, indices, name, cosine_sim_count)
+                print(reccs[['district', 'town', 'name', 'rooms', 'price']])
+            else:
+                print("Wrong method input. Try again")
+        except Exception as e:
+            print("Error while trying to get reccs. Retrying. Error: " + str(e))
 
-    print(reccs)
+        print("Finished")
 
-        
+#Vila Balasa
